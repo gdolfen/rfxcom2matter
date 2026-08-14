@@ -1,0 +1,66 @@
+# RFXCom2Matter configuration reference
+#
+# This file documents every available option and is used as a template: when the
+# bridge starts without a config.yml it copies this file (all features disabled)
+# to the data directory and reloads. Edit the live config.yml (or use the
+# Web-UI "Roh-Konfig" tab) to enable features.
+#
+# All features are DISABLED by default so a fresh container starts safely.
+
+# Log verbosity: debug | info | warn | error
+loglevel: info
+
+server:
+  host: 0.0.0.0        # bind address of the web UI / REST API
+  port: 3000           # web UI port
+
+state:
+  # Persisted shutter positions (time-based simulation). Stored inside the
+  # data directory (Docker volume).
+  file: ./data/state.json
+
+rfxcom:
+  usbport: /dev/ttyUSB0   # local USB serial port of the RFXtrx stick
+  debug: false            # log raw USB bytes
+  tcp:
+    # RFXmngr TCP gateway: exposes the stick over TCP (port 10001) so RFXmngr
+    # can share the stick race-free with the bridge.
+    enabled: false
+    port: 10001
+  tcpClient:
+    # Alternative to usbport: connect to a stick on a REMOTE host over TCP
+    # (e.g. via socat/ser2net). When enabled, usbport is ignored.
+    enabled: false
+    host: ''
+    port: 10001
+
+matter:
+  enabled: false          # Matter bridge (mDNS + pairing)
+  port: 5540              # Matter port (UDP)
+  discriminator: 3840     # 0-4095, unique per bridge on the network
+  name: RFXCom2Matter     # announced device name
+
+mqtt:
+  enabled: false          # publish state + Home-Assistant discovery
+  server: tcp://localhost:1883
+  base_topic: rfxcom2mqtt
+  username: ''
+  password: ''
+  discovery_topic: homeassistant
+  discovery: false        # publish Home-Assistant discovery
+
+ui:
+  theme: dark             # dark | light
+
+devices: []
+# devices:
+#   - id: 0x10101/1           # RFY id (rfxcom2mqtt form, required): 3-byte hex + unit
+#                              #   e.g. "0x10101/1" (the UI shows it as "1/01/01 · Unit 1")
+#     name: shutter_example   # unique name (required) — used in MQTT topics
+#     title: Rolladen Beispiel # display name (optional, defaults to name)
+#     type: rfy               # required
+#     subtype: RFY            # required
+#     travelTimeUp: 16000     # optional travel time opening (ms, default 6000)
+#     travelTimeDown: 18000   # optional travel time closing (ms, default 6000)
+#     timeBasedPosition: true # simulate position over travel time + allow partial positions
+#     shadePosition: 50       # target position (0-100) of the shade button
