@@ -1,0 +1,29 @@
+services:
+  rfxcom2matter:
+    build: .
+    image: rfxcom2matter:latest
+    container_name: rfxcom2matter
+    restart: unless-stopped
+    # Note: on Docker Desktop (Windows/Mac) host networking does not publish
+    # ports, so we use bridge networking + explicit port mappings. On a Linux
+    # host where Matter mDNS/IPv6 multicast matters, switch to:
+    #   network_mode: host
+    #   (and drop the ports block)
+    ports:
+      - "3000:3000"    # web UI
+      - "5540:5540/udp" # Matter
+      - "10001:10001"  # RFXmngr TCP gateway (if enabled)
+    # Local USB stick passthrough (Linux host only). Comment this block out on
+    # Windows/Docker Desktop or when using a remote stick over TCP instead.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    volumes:
+      # config.yml + state.json live here; auto-created with defaults on first
+      # start if missing. Bind mount of the local ./data directory so the host
+      # can edit the config directly.
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - RFXCOM_CONFIG=/app/data/config.yml
+      # RFXmngr TCP gateway is exposed via host networking on port 10001
+      # (default) once enabled in config.yml under rfxcom.tcp
