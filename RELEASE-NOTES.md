@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.8] – 2026-08-17
+
+### Changed
+
+| Bereich | Funktion |
+| --- | --- |
+| **MQTT** | **Home-Assistant-Discovery stellt jedes Rolladen als eigenes Gerät bereit** – bisher waren alle Covers unter einem gemeinsamen Gerät (`identifiers: [rfxcom2mqtt]`, Name „RFXCom2Matter") zusammengefasst. Jetzt erhält jedes Rolladen seinen eigenen HA-Device-Block mit `identifiers: ["shutter_<name>"]` und dem Rolladen-Titel als Gerätename. Entity-`unique_id` und Topic-Layout (`homeassistant/cover/<id>/config`, `rfxcom2mqtt/...`) bleiben unverändert |
+
 ## [0.2.7] – 2026-08-17
 
 ### Changed

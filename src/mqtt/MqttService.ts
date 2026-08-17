@@ -1,6 +1,7 @@
 import * as mqtt from 'mqtt';
 import { MqttConfig } from '../config';
 import { DeviceManager } from '../devices/DeviceManager';
+import type { SimulatedDevice } from '../devices/types';
 
 /**
  * Optional MQTT publishing of device state + Home Assistant discovery.
@@ -33,7 +34,7 @@ export class MqttService {
       console.log('[mqtt] connected');
       if (this.config.discovery) {
         for (const device of this.devices.list()) {
-          this.publishDiscovery(device.id, device.name);
+          this.publishDiscovery(device);
         }
       }
       for (const device of this.devices.list()) {
@@ -51,20 +52,20 @@ export class MqttService {
     this.devices.on('device:update', (device) => this.publish(device));
   }
 
-  /** publish HA cover discovery for a device */
-  private publishDiscovery(deviceId: string, name: string): void {
+  /** publish HA cover discovery for a device (each shutter gets its own device) */
+  private publishDiscovery(device: SimulatedDevice): void {
     if (!this.client) return;
-    const id = this.topicId(name);
+    const id = this.topicId(device.name);
     const base = `${this.config.base_topic}`;
     const topic = `${this.config.discovery_topic}/cover/${id}/config`;
     const payload = {
-      name,
+      name: device.title,
       unique_id: `${this.config.base_topic}_${id}`,
       device_class: 'shutter',
       device: {
-        identifiers: [this.config.base_topic],
+        identifiers: [`shutter_${id}`],
         manufacturer: 'RFXCom',
-        name: 'RFXCom2Matter',
+        name: device.title,
         model: 'RFXtrx433',
       },
       command_topic: `${base}/command/rfy/${id}`,
