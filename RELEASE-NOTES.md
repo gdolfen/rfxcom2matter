@@ -3,6 +3,21 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.5] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Commissioning-Fenster wurde zur falschen Zeit wieder geöffnet** – das Re-Open lief über `FabricManager.events.added` und feuerte damit **während** der laufenden Commissioning-Sitzung (direkt nach `AddNOC`, bevor der Controller per CASE `CommissioningComplete` sendet). Das störte das Pairing von Home Assistant („Ein Fehler ist aufgetreten“, obwohl die Fabric angelegt wurde) und das Fenster wurde anschließend von matter.js wieder geschlossen, sodass der nächste Controller (z. B. openHAB) keine `commissionable`-Werbung mehr fand und in einen Timeout lief. Das Fenster wird nun erst **nach** abgeschlossenem Commissioning über `CommissioningServer.events.commissioned`/`fabricsChanged` neu geöffnet |
+| **Matter** | Beim Entfernen der **letzten Fabric** wird das Commissioning-Fenster jetzt wirklich geöffnet (vorher wurde nur das UI-Flag gesetzt) |
+
+### Added
+
+| Bereich | Funktion |
+| --- | --- |
+| **Test** | Neuer End-to-End-Test `src/test/commission.test.ts`: kommissioniert die Bridge mit einem echten matter.js-Controller und prüft Fabric-Erstellung sowie das erneute Öffnen des Commissioning-Fensters |
+
 ## [0.2.4] – 2026-08-17
 
 ### Fixed

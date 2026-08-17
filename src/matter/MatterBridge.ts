@@ -78,6 +78,7 @@ export class MatterBridge {
   private listeners = new Set<(updated?: SimulatedDevice) => void>();
   private fabricObserver?: () => void;
   private fabricDeletedObserver?: () => void;
+  private commissioningServer?: CommissioningServer;
   private currentPairing: PairingInfo | null = null;
   private commissioningOpen = false;
   private commissioningCallback?: (state: MatterCommissioningState) => void;
@@ -169,15 +170,34 @@ export class MatterBridge {
     // Commissioning window handling (multi-admin + UI visibility):
     // - When uncommissioned at start the device is already commissionable; we
     //   just surface the open window to the UI for `commissioningWindowS`.
-    // - When a controller commissions the bridge we re-open the window so
+    // - After a controller has finished commissioning we re-open the window so
     //   further controllers can join using the SAME pairing code.
     // - When the last fabric is removed the device becomes commissionable again.
+    //
+    // NOTE: the re-open must NOT be triggered from FabricManager.events.added.
+    // That event fires while the controller is still mid-commissioning (right
+    // after AddNOC, before it establishes CASE and sends CommissioningComplete).
+    // Re-entering commissionable mode at that point is torn down again by
+    // DeviceCommissioner.endCommissioning(), breaks the ongoing pairing (HA
+    // reports an error although the fabric exists) and leaves no commissionable
+    // advertisement behind, so the next controller (openHAB) times out.
+    // CommissioningServer.events.fabricsChanged / .commissioned are emitted from
+    // handleFabricChange() once the failsafe construction is destroyed, i.e.
+    // AFTER endCommissioning() has already closed the window - the correct time.
     const fabricManager = server.env.get(FabricManager);
-    const onFabricAdded = () => { void this.openCommissioning().catch(() => {}); };
-    const onFabricDeleted = () => { if (fabricManager.fabrics.length === 0) this.openWindow(); };
-    fabricManager.events.added.on(onFabricAdded);
+    const onCommissioningComplete = () => { void this.openCommissioning().catch(() => {}); };
+    try {
+      this.commissioningServer = await server.act((agent) => agent.get(CommissioningServer));
+      this.commissioningServer.events.commissioned.on(onCommissioningComplete);
+      this.commissioningServer.events.fabricsChanged.on(onCommissioningComplete);
+    } catch (err) {
+      console.error('[matter] could not subscribe to commissioning events:', (err as Error)?.message ?? err);
+    }
+    const onFabricDeleted = () => {
+      if (fabricManager.fabrics.length === 0) void this.openCommissioning().catch(() => {});
+    };
     fabricManager.events.deleted.on(onFabricDeleted);
-    this.fabricObserver = onFabricAdded;
+    this.fabricObserver = onCommissioningComplete;
     this.fabricDeletedObserver = onFabricDeleted;
 
     if (fabricManager.fabrics.length > 0) {
@@ -274,14 +294,18 @@ export class MatterBridge {
     }
     this.listeners.clear();
     this.endpoints.clear();
-    if (this.node && this.fabricObserver) {
-      try {
-        this.node.env.get(FabricManager).events.added.off(this.fabricObserver);
-      } catch {
-        /* ignore */
+    if (this.fabricObserver) {
+      if (this.commissioningServer) {
+        try {
+          this.commissioningServer.events.commissioned.off(this.fabricObserver);
+          this.commissioningServer.events.fabricsChanged.off(this.fabricObserver);
+        } catch {
+          /* ignore */
+        }
       }
       this.fabricObserver = undefined;
     }
+    this.commissioningServer = undefined;
     if (this.node && this.fabricDeletedObserver) {
       try {
         this.node.env.get(FabricManager).events.deleted.off(this.fabricDeletedObserver);
