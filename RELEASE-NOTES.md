@@ -3,6 +3,21 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.6] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Home-Assistant-Kopplung scheiterte mit „Keine Verbindung mit dem Gerät möglich“** – HA/Google (Google Play services Matter-Engine) öffnet per `AdministratorCommissioning.openCommissioningWindow` ein eigenes Commissioning-Fenster mit selbst erzeugtem Passcode. matter.js beantwortete das mit **Busy** („A commissioning window is already opened“), sobald irgendein Fenster offen war – auch das von der Bridge für Multi-Admin offen gehaltene. HA bricht das Pairing bei dieser Antwort ab. Die Bridge schließt nun vor dem Öffnen eines angefragten Fensters das bestehende und erfüllt die Anfrage (geschützt vor einem noch laufenden Commissioning über den Failsafe-Timer) |
+| **Matter-UI** | Controller-Fabrics, die sich seit dem Bridge-Start nie (erneut) verbunden haben, werden als **„verwaist“** markiert – Rückstände abgebrochener Pairings (z. B. einer fehlgeschlagenen HA-Kopplung) sind damit sichtbar und sicher entfernbar. Zusätzlich werden Vendor-Name, Verbindungsstatus und „zuletzt gesehen“ angezeigt |
+
+### Added
+
+| Bereich | Funktion |
+| --- | --- |
+| **Test** | Der Commissioning-Test ruft `openCommissioningWindow` als Controller zweimal hintereinander auf und verhindert damit Regressionen auf den Busy-Fehler |
+
 ## [0.2.5] – 2026-08-17
 
 ### Fixed

@@ -1,5 +1,7 @@
 import { ServerNode } from '@matter/main';
-import { Seconds } from '@matter/general';
+import { AdministratorCommissioningClient } from '@matter/node/behaviors/administrator-commissioning';
+import { Seconds, Spake2p, Bytes, type Crypto } from '@matter/general';
+import { SessionManager } from '@matter/protocol';
 import { PositionSimulator } from '../simulation/PositionSimulator';
 import { DeviceManager } from '../devices/DeviceManager';
 import { MatterBridge } from '../matter/MatterBridge';
@@ -31,6 +33,14 @@ const config: BridgeConfig = {
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error('FAIL: ' + msg);
   console.log('PASS: ' + msg);
+}
+
+/** Build a syntactically valid PAKE passcode verifier (w0 || L) like a real controller would. */
+async function makePasscodeVerifier(passcode: number, crypto: Crypto): Promise<Uint8Array> {
+  const iterations = 10000;
+  const salt = crypto.randomBytes(32);
+  const { w0, L } = await Spake2p.computeW0L(crypto, { iterations, salt }, passcode);
+  return Bytes.concat(Bytes.fromBigInt(w0, 32), L);
 }
 
 async function main(): Promise<void> {
@@ -67,10 +77,32 @@ async function main(): Promise<void> {
   const fabrics = bridge.getFabrics();
   assert(fabrics.length === 1, `bridge shows exactly one fabric (got ${fabrics.length})`);
   console.log('[test] fabric:', fabrics[0]);
+  assert(fabrics[0].stale === false, 'freshly commissioned fabric is not marked stale');
+  assert(fabrics[0].lastSeen !== null, 'freshly commissioned fabric has a lastSeen timestamp');
 
   // The commissioning window must be re-opened AFTER commissioning completed, otherwise
   // a second controller (openHAB) cannot discover the bridge and times out.
   assert(bridge.getCommissioningState().open === true, 'commissioning window re-opened after commissioning');
+
+  // Home Assistant (Google Play services) opens an enhanced commissioning window with its own
+  // passcode via the AdministratorCommissioning cluster. matter.js rejects that with Busy while
+  // any window is open (our Multi-Admin window) or while the basic window is open - and HA aborts
+  // the pairing. Our override must close the existing window and honor the request instead.
+  const verifier = await makePasscodeVerifier(20202021, controller.env.get(SessionManager).crypto);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await peer.act((agent) =>
+      agent
+        .get(AdministratorCommissioningClient)
+        .openCommissioningWindow({
+          pakePasscodeVerifier: verifier,
+          discriminator: config.matter.discriminator,
+          iterations: 10000,
+          salt: controller.env.get(SessionManager).crypto.randomBytes(32),
+          commissioningTimeout: 180,
+        }),
+    );
+    assert(true, `openCommissioningWindow honored on attempt ${attempt} (no Busy, window closed & reopened)`);
+  }
 
   await controller.close();
   await bridge.stop();

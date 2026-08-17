@@ -884,10 +884,15 @@
         return;
       }
       el.innerHTML = fabrics.map(f => `
-        <div class="fabric-row">
+        <div class="fabric-row"${f.stale ? ' style="border-color:#c62828;"' : ''}>
           <div>
-            <div class="fabric-title">${f.label ? escapeHtml(f.label) : 'Client #' + f.fabricIndex}</div>
-            <div class="hint">Fabric #${f.fabricIndex} · Node ${escapeHtml(f.nodeId)} · Fabric-ID ${escapeHtml(f.fabricId)}</div>
+            <div class="fabric-title">${f.label ? escapeHtml(f.label) : 'Client #' + f.fabricIndex}
+              ${f.stale ? ' <span style="color:#c62828;font-weight:700;">· verwaist (nie verbunden)</span>' : ''}
+              ${!f.stale && !f.connected ? ' <span style="color:#b26a00;">· offline</span>' : ''}
+            </div>
+            <div class="hint">Fabric #${f.fabricIndex} · Node ${escapeHtml(f.nodeId)} · Fabric-ID ${escapeHtml(f.fabricId)}
+              · ${escapeHtml(f.vendorName)}${f.label ? '' : ' · ohne Label (unvollständig)'}
+              ${f.lastSeen ? ' · zuletzt gesehen ' + new Date(f.lastSeen).toLocaleTimeString() : ''}</div>
           </div>
           <button class="danger" data-fabric-index="${f.fabricIndex}">Entfernen</button>
         </div>`).join('');

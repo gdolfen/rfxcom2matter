@@ -7,8 +7,16 @@ import {
   MovementType,
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
-import { FabricManager, CommissioningConfigProvider } from '@matter/protocol';
+import {
+  FabricManager,
+  CommissioningConfigProvider,
+  SessionManager,
+  DeviceCommissioner,
+} from '@matter/protocol';
+import type { NodeSession } from '@matter/protocol';
 import { CommissioningServer } from '@matter/node';
+import { AdministratorCommissioningServer } from '@matter/node/behaviors/administrator-commissioning';
+import { AdministratorCommissioning } from '@matter/types/clusters/administrator-commissioning';
 import { Minutes } from '@matter/general';
 import { resolve } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
@@ -23,7 +31,75 @@ export interface FabricInfo {
   rootNodeId: string;
   rootVendorId: number;
   label: string;
+  /** Whether the controller currently has an active (CASE) session. */
+  connected: boolean;
+  /** Unix ms of the last session the controller established since bridge start (null = never). */
+  lastSeen: number | null;
+  /** True when the fabric never reconnected since bridge start - a leftover from a failed/unfinished commissioning. */
+  stale: boolean;
+  /** Human-readable name of the controller's root vendor. */
+  vendorName: string;
 }
+
+/** Friendly names for well-known commissioner root vendor IDs. */
+function vendorNameFor(vendorId: number): string {
+  switch (vendorId) {
+    case 0x6006:
+      return 'Google';
+    case 0x1001:
+      return 'openHAB';
+    case 0xfff1:
+      return 'Matter (HA/matter.js)';
+    default:
+      return `Vendor 0x${vendorId.toString(16).toUpperCase()}`;
+  }
+}
+
+/**
+ * AdministratorCommissioning server override: a controller (e.g. the Google
+ * Play services Matter engine used by the Home Assistant app) may call
+ * openCommissioningWindow to open a window with its own generated passcode.
+ * matter.js answers "A commissioning window is already opened" (Busy) whenever
+ * a window is open - including the window this bridge intentionally keeps open
+ * for Multi-Admin. HA aborts the whole pairing on that Busy response.
+ *
+ * Instead of refusing, close whatever window is currently open and honor the
+ * controller's request, so the flow succeeds. This is safe as long as no
+ * commissioning is actually in progress (failsafe timer armed).
+ */
+class RfxcomAdministratorCommissioningServer extends AdministratorCommissioningServer {
+  override async openCommissioningWindow(request: AdministratorCommissioning.OpenCommissioningWindowRequest) {
+    await this.closeOpenWindow();
+    return super.openCommissioningWindow(request);
+  }
+
+  override async openBasicCommissioningWindow(request: AdministratorCommissioning.OpenBasicCommissioningWindowRequest) {
+    await this.closeOpenWindow();
+    return super.openBasicCommissioningWindow(request);
+  }
+
+  private async closeOpenWindow(): Promise<void> {
+    const commissioner = this.env.get(DeviceCommissioner);
+    // Never tear down a commissioning that is currently in progress.
+    if (commissioner.isFailsafeArmed) return;
+    try {
+      await commissioner.endCommissioning();
+    } catch (err) {
+      console.error('[matter] could not close existing commissioning window:', (err as Error)?.message ?? err);
+    }
+    if (this.internal.commissioningWindowTimeout !== undefined) {
+      this.internal.commissioningWindowTimeout.stop();
+      this.internal.commissioningWindowTimeout = undefined;
+      this.internal.stopMonitoringFabricForRemoval?.();
+      this.state.windowStatus = AdministratorCommissioning.CommissioningWindowStatus.WindowNotOpen;
+      this.state.adminFabricIndex = null;
+      this.state.adminVendorId = null;
+    }
+  }
+}
+
+/** Root endpoint variant with the openCommissioningWindow fix wired in. */
+const RfxcomRootEndpoint = ServerNode.RootEndpoint.with(RfxcomAdministratorCommissioningServer);
 
 /** State of the commissioning (pairing) window, pushed to the UI. */
 export interface MatterCommissioningState {
@@ -79,6 +155,9 @@ export class MatterBridge {
   private fabricObserver?: () => void;
   private fabricDeletedObserver?: () => void;
   private commissioningServer?: CommissioningServer;
+  private sessionManager?: SessionManager;
+  private sessionObserver?: (session: NodeSession) => void;
+  private fabricLastSeen = new Map<number, number>();
   private currentPairing: PairingInfo | null = null;
   private commissioningOpen = false;
   private commissioningCallback?: (state: MatterCommissioningState) => void;
@@ -110,7 +189,7 @@ export class MatterBridge {
       console.error('[matter] could not set storage path:', (err as Error)?.message ?? err);
     }
 
-    const server = await ServerNode.create({
+    const server = await ServerNode.create(RfxcomRootEndpoint, {
       id: 'rfxcom2matter',
       network: { port: this.config.port },
       commissioning: { passcode: 20202021, discriminator: this.config.discriminator },
@@ -199,6 +278,25 @@ export class MatterBridge {
     fabricManager.events.deleted.on(onFabricDeleted);
     this.fabricObserver = onCommissioningComplete;
     this.fabricDeletedObserver = onFabricDeleted;
+
+    // Track which controllers actually establish (CASE) sessions after this
+    // bridge start. A fabric that never reconnects is a stale leftover from an
+    // aborted commissioning (e.g. the Google Play services fabric left behind
+    // by a failed HA-Android pairing) and gets marked "verwaist" in the UI so
+    // it can be safely removed.
+    try {
+      const sessionManager = server.env.get(SessionManager);
+      const onSessionAdded = (session: NodeSession) => {
+        const fabricIndex = session.fabric?.fabricIndex;
+        if (fabricIndex === undefined) return;
+        this.fabricLastSeen.set(fabricIndex, Date.now());
+      };
+      sessionManager.sessions.added.on(onSessionAdded);
+      this.sessionManager = sessionManager;
+      this.sessionObserver = onSessionAdded;
+    } catch (err) {
+      console.error('[matter] could not subscribe to session events:', (err as Error)?.message ?? err);
+    }
 
     if (fabricManager.fabrics.length > 0) {
       void this.openCommissioning().catch(() => {});
@@ -306,6 +404,16 @@ export class MatterBridge {
       this.fabricObserver = undefined;
     }
     this.commissioningServer = undefined;
+    if (this.sessionManager && this.sessionObserver) {
+      try {
+        this.sessionManager.sessions.added.off(this.sessionObserver);
+      } catch {
+        /* ignore */
+      }
+      this.sessionObserver = undefined;
+    }
+    this.sessionManager = undefined;
+    this.fabricLastSeen.clear();
     if (this.node && this.fabricDeletedObserver) {
       try {
         this.node.env.get(FabricManager).events.deleted.off(this.fabricDeletedObserver);
@@ -331,13 +439,20 @@ export class MatterBridge {
     const fabricManager = this.node.env.get(FabricManager);
     return fabricManager.fabrics.map((fabric) => {
       const e = fabric.externalInformation;
+      const fabricIndex = e.fabricIndex;
+      const lastSeen = this.fabricLastSeen.get(fabricIndex) ?? null;
+      const connected = (this.sessionManager?.sessionsForFabricIndex(fabricIndex).length ?? 0) > 0;
       return {
-        fabricIndex: e.fabricIndex,
+        fabricIndex,
         fabricId: e.fabricId.toString(),
         nodeId: e.nodeId.toString(),
         rootNodeId: e.rootNodeId.toString(),
         rootVendorId: e.rootVendorId,
         label: e.label ?? '',
+        connected,
+        lastSeen,
+        stale: !connected && lastSeen === null,
+        vendorName: vendorNameFor(e.rootVendorId),
       };
     });
   }

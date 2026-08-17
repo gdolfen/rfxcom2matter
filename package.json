@@ -1,6 +1,6 @@
 {
   "name": "rfxcom2matter",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "RFXCom to Matter bridge with web UI for configuration and control",
   "main": "dist/index.js",
   "type": "commonjs",
