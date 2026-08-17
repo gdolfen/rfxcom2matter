@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.10] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **HA-Android-Pairing funktioniert** (matterbridge-gleich): Der bisherige `RfxcomAdministratorCommissioningServer`-Override (0.2.6) schloss das Basic-Commissioning-Fenster und öffnete stattdessen ein Enhanced-Fenster mit dem von der Phone-Matter-Engine generierten Passcode. matter-server kommissioniert aber mit dem QR-Passcode (`20202021`) – die Bridge lehnte PASE mit `CHIP_ERROR_INVALID_PASE_PARAMETER` ab („Invalid PASE parameter" im matter-server-Log). Der Override wurde entfernt. Wie bei matterbridge (matter.js 0.17.9, identische Version) wird `openCommissioningWindow` bei offenem Basic-Fenster von matter.js mit einem Fehler beantwortet; die Engine fällt auf den QR-Passcode zurück und PASE läuft erfolgreich gegen das Basic-Fenster. Der Commissioning-Test bildet diesen Ablauf nach: Enhanced-Window wird abgelehnt, danach kommissioniert ein zweiter Controller mit dem QR-Passcode (2 Fabrics) |
+
 ## [0.2.9] – 2026-08-17
 
 ### Fixed

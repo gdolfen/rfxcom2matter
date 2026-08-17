@@ -7,11 +7,9 @@ import {
   MovementType,
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
-import { FabricManager, SessionManager, DeviceCommissioner } from '@matter/protocol';
+import { FabricManager, SessionManager } from '@matter/protocol';
 import type { NodeSession } from '@matter/protocol';
 import { CommissioningServer } from '@matter/node';
-import { AdministratorCommissioningServer } from '@matter/node/behaviors/administrator-commissioning';
-import { AdministratorCommissioning } from '@matter/types/clusters/administrator-commissioning';
 import { resolve } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
 import { SimulatedDevice } from '../devices/types';
@@ -50,50 +48,21 @@ function vendorNameFor(vendorId: number): string {
 }
 
 /**
- * AdministratorCommissioning server override: a controller (e.g. the Google
- * Play services Matter engine used by the Home Assistant app) may call
- * openCommissioningWindow to open a window with its own generated passcode.
- * matter.js answers "A commissioning window is already opened" (Busy) whenever
- * a window is open - including the window this bridge intentionally keeps open
- * for Multi-Admin. HA aborts the whole pairing on that Busy response.
+ * AdministratorCommissioning override is intentionally NOT installed, to
+ * behave exactly like matterbridge (same matter.js 0.17.9).
  *
- * Instead of refusing, close whatever window is currently open and honor the
- * controller's request, so the flow succeeds. This is safe as long as no
- * commissioning is actually in progress (failsafe timer armed).
+ * When the Home Assistant Android "Matter engine" calls openCommissioningWindow
+ * while the bridge advertises its basic commissioning window (uncommissioned or
+ * opened via the UI button), matter.js 0.17.9 answers with a MatterFlowError
+ * ("Basic commissioning window is already open"). The engine treats that as a
+ * fallback and commissions with the QR passcode against the still-active basic
+ * window - which is what works.
+ *
+ * The previous override instead closed the basic window and opened an enhanced
+ * window with the engine's own generated passcode. matter-server however
+ * commissions with the QR passcode (20202021), so the bridge rejected the PASE
+ * attempt with CHIP_ERROR_INVALID_PASE_PARAMETER ("Invalid PASE parameter").
  */
-class RfxcomAdministratorCommissioningServer extends AdministratorCommissioningServer {
-  override async openCommissioningWindow(request: AdministratorCommissioning.OpenCommissioningWindowRequest) {
-    await this.closeOpenWindow();
-    return super.openCommissioningWindow(request);
-  }
-
-  override async openBasicCommissioningWindow(request: AdministratorCommissioning.OpenBasicCommissioningWindowRequest) {
-    await this.closeOpenWindow();
-    return super.openBasicCommissioningWindow(request);
-  }
-
-  private async closeOpenWindow(): Promise<void> {
-    const commissioner = this.env.get(DeviceCommissioner);
-    // Never tear down a commissioning that is currently in progress.
-    if (commissioner.isFailsafeArmed) return;
-    try {
-      await commissioner.endCommissioning();
-    } catch (err) {
-      console.error('[matter] could not close existing commissioning window:', (err as Error)?.message ?? err);
-    }
-    if (this.internal.commissioningWindowTimeout !== undefined) {
-      this.internal.commissioningWindowTimeout.stop();
-      this.internal.commissioningWindowTimeout = undefined;
-      this.internal.stopMonitoringFabricForRemoval?.();
-      this.state.windowStatus = AdministratorCommissioning.CommissioningWindowStatus.WindowNotOpen;
-      this.state.adminFabricIndex = null;
-      this.state.adminVendorId = null;
-    }
-  }
-}
-
-/** Root endpoint variant with the openCommissioningWindow fix wired in. */
-const RfxcomRootEndpoint = ServerNode.RootEndpoint.with(RfxcomAdministratorCommissioningServer);
 
 /** State of the commissioning (pairing) window, pushed to the UI. */
 export interface MatterCommissioningState {
@@ -182,7 +151,7 @@ export class MatterBridge {
       console.error('[matter] could not set storage path:', (err as Error)?.message ?? err);
     }
 
-    const server = await ServerNode.create(RfxcomRootEndpoint, {
+    const server = await ServerNode.create(ServerNode.RootEndpoint, {
       id: 'rfxcom2matter',
       network: { port: this.config.port, tcp: true, transportPreference: 'udp' },
       commissioning: { passcode: 20202021, discriminator: this.config.discriminator },

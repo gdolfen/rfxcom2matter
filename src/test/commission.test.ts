@@ -89,12 +89,15 @@ async function main(): Promise<void> {
   await bridge.openCommissioning();
   assert(bridge.getCommissioningState().open === true, 'commissioning window re-opened on demand');
 
-  // Home Assistant (Google Play services) opens an enhanced commissioning window with its own
-  // passcode via the AdministratorCommissioning cluster. Our override must close any
-  // currently open window (here: the on-demand basic window) and honor the request instead
-  // of answering Busy - otherwise HA aborts the pairing.
+  // matterbridge-style behavior (no AdministratorCommissioning override, matter.js 0.17.9):
+  // while the basic commissioning window is open, a controller's openCommissioningWindow
+  // (enhanced window with its own passcode) is REJECTED with "Basic commissioning window
+  // is already open". Home Assistant's Android engine treats that as a fallback and
+  // commissions with the QR passcode against the still-active basic window - that is
+  // exactly what makes the HA pairing work (matterbridge does the same).
   const verifier = await makePasscodeVerifier(20202021, controller.env.get(SessionManager).crypto);
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let enhancedRejected = false;
+  try {
     await peer.act((agent) =>
       agent
         .get(AdministratorCommissioningClient)
@@ -106,8 +109,30 @@ async function main(): Promise<void> {
           commissioningTimeout: 180,
         }),
     );
-    assert(true, `openCommissioningWindow honored on attempt ${attempt} (no Busy, window closed & reopened)`);
+  } catch {
+    enhancedRejected = true;
   }
+  assert(enhancedRejected, 'enhanced commissioning window rejected while basic window is open (like matterbridge)');
+
+  // HA fallback: a second controller (separate fabric) commissions with the QR passcode
+  // against the still-open basic window.
+  const controller2 = await ServerNode.create({
+    id: 'controller2-test',
+    network: { port: 5598 },
+  });
+  await controller2.start();
+  const peer2 = await controller2.peers.commission({
+    id: 'peer-fallback',
+    pairingCode: pairing.manual,
+    longDiscriminator: config.matter.discriminator,
+    timeout: Seconds(90),
+  });
+  assert(!!peer2, 'fallback commissioning with QR passcode succeeded (basic window)');
+  assert(
+    bridge.getFabrics().length === 2,
+    `bridge shows two fabrics after fallback commissioning (got ${bridge.getFabrics().length})`,
+  );
+  await controller2.close();
 
   await controller.close();
   await bridge.stop();
