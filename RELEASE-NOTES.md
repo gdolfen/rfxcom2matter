@@ -3,6 +3,22 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.7] – 2026-08-17
+
+### Changed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Kein dauerhaft offenes Commissioning-Fenster mehr (matterbridge-Konvention)** – die Bridge hielt bisher ein Basic-Fenster für Multi-Admin permanent offen und öffnete es nach jeder Kopplung automatisch wieder. matterbridge hält kein Fenster offen; es wird nur bei ungepaartem Gerät oder auf Anforderung geöffnet. Die Bridge folgt jetzt demselben Muster: nach erfolgreicher Kopplung geht sie in den Betriebsmodus und bewirbt nichts mehr als `commissionable`. Weitere Controller werden per UI-Button „Pairing erneut öffnen“ (weiterhin derselbe Pairing-Code) hinzugefügt. Damit gibt es zum Zeitpunkt eines HA/Google-Pairings nur noch **eine** `commissionable`-Werbung (das per `openCommissioningWindow` geöffnete Enhanced-Fenster) – der `Busy`-Konflikt und mögliche Fehlzuordnungen der HA-Seite entfallen wie bei matterbridge |
+| **Matter** | Netzwerk-/Produktwerbung an matterbridge angeglichen: `network` setzt jetzt `tcp: true` und `transportPreference: 'udp'`, und `productDescription` enthält explizit `vendorId`/`productId` (0xFFF1/0x8000) für die `commissionable`-TXT-Records |
+| **Matter** | Der ineffektive `CommissioningConfigProvider`-Override (60-s-`advertisementWindow`) wurde entfernt – er entsprach nicht matterbridge und wirkte in matter.js 0.17.9 nicht (der Timer wird nie gestartet) |
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Test** | Der Commissioning-Test erwartet jetzt das matterbridge-konforme Verhalten: Fenster **zu** nach der Kopplung, erneut **offen** nach On-Demand-Aufruf (UI-Button) |
+
 ## [0.2.6] – 2026-08-17
 
 ### Fixed

@@ -7,17 +7,11 @@ import {
   MovementType,
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
-import {
-  FabricManager,
-  CommissioningConfigProvider,
-  SessionManager,
-  DeviceCommissioner,
-} from '@matter/protocol';
+import { FabricManager, SessionManager, DeviceCommissioner } from '@matter/protocol';
 import type { NodeSession } from '@matter/protocol';
 import { CommissioningServer } from '@matter/node';
 import { AdministratorCommissioningServer } from '@matter/node/behaviors/administrator-commissioning';
 import { AdministratorCommissioning } from '@matter/types/clusters/administrator-commissioning';
-import { Minutes } from '@matter/general';
 import { resolve } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
 import { SimulatedDevice } from '../devices/types';
@@ -153,7 +147,6 @@ export class MatterBridge {
   private endpoints = new Map<string, Endpoint>();
   private listeners = new Set<(updated?: SimulatedDevice) => void>();
   private fabricObserver?: () => void;
-  private fabricDeletedObserver?: () => void;
   private commissioningServer?: CommissioningServer;
   private sessionManager?: SessionManager;
   private sessionObserver?: (session: NodeSession) => void;
@@ -191,11 +184,13 @@ export class MatterBridge {
 
     const server = await ServerNode.create(RfxcomRootEndpoint, {
       id: 'rfxcom2matter',
-      network: { port: this.config.port },
+      network: { port: this.config.port, tcp: true, transportPreference: 'udp' },
       commissioning: { passcode: 20202021, discriminator: this.config.discriminator },
       productDescription: {
         name: this.config.name,
         deviceType: AggregatorEndpoint.deviceType,
+        vendorId: VendorId(0xfff1),
+        productId: 0x8000,
       },
       basicInformation: {
         vendorName: 'RFXCom2Matter',
@@ -207,25 +202,6 @@ export class MatterBridge {
         uniqueId: 'rfxcom2matter-v1',
       },
     });
-
-    // Limit the commissioning window to `commissioningWindowS` seconds. matter.js
-    // defaults to 15 min and does not expose advertisementWindow via the public
-    // commissioning option, so inject it into the CommissioningConfigProvider
-    // that DeviceCommissioner reads. Must happen before server.start().
-    try {
-      const windowS = this.commissioningWindowS;
-      const existing = server.env.get(CommissioningConfigProvider);
-      server.env.set(
-        CommissioningConfigProvider,
-        new (class extends CommissioningConfigProvider {
-          override get values() {
-            return { ...existing.values, advertisementWindow: Minutes(windowS / 60) };
-          }
-        })(),
-      );
-    } catch {
-      /* fall back to matter.js default window */
-    }
 
     const aggregator = new Endpoint(AggregatorEndpoint, { id: 'aggregator' });
     await server.add(aggregator);
@@ -246,38 +222,32 @@ export class MatterBridge {
     this.node = server;
     this.currentPairing = { manual: pairingCode, qr: qrCode };
 
-    // Commissioning window handling (multi-admin + UI visibility):
-    // - When uncommissioned at start the device is already commissionable; we
-    //   just surface the open window to the UI for `commissioningWindowS`.
-    // - After a controller has finished commissioning we re-open the window so
-    //   further controllers can join using the SAME pairing code.
-    // - When the last fabric is removed the device becomes commissionable again.
+    // Commissioning window handling (matterbridge-style, no permanently open
+    // window): the device is only commissionable while uncommissioned (matter.js
+    // auto-advertises at start) or while the user explicitly opened a window via
+    // the UI button (openCommissioning). After a controller has commissioned the
+    // bridge, matter.js enters operational mode and stops advertising.
     //
-    // NOTE: the re-open must NOT be triggered from FabricManager.events.added.
-    // That event fires while the controller is still mid-commissioning (right
-    // after AddNOC, before it establishes CASE and sends CommissioningComplete).
-    // Re-entering commissionable mode at that point is torn down again by
-    // DeviceCommissioner.endCommissioning(), breaks the ongoing pairing (HA
-    // reports an error although the fabric exists) and leaves no commissionable
-    // advertisement behind, so the next controller (openHAB) times out.
-    // CommissioningServer.events.fabricsChanged / .commissioned are emitted from
-    // handleFabricChange() once the failsafe construction is destroyed, i.e.
-    // AFTER endCommissioning() has already closed the window - the correct time.
+    // NOTE: we must NOT re-enter commissionable mode from
+    // FabricManager.events.added. That event fires while the controller is still
+    // mid-commissioning (right after AddNOC, before it establishes CASE and sends
+    // CommissioningComplete). Re-entering at that point is torn down again by
+    // DeviceCommissioner.endCommissioning(), breaks the ongoing pairing and
+    // leaves no commissionable advertisement behind. The always-open Multi-Admin
+    // window this bridge used to keep also made the HA/Google commissioning flow
+    // answer "Busy" (see RfxcomAdministratorCommissioningServer) - dropping it
+    // removes that conflict entirely, like matterbridge.
     const fabricManager = server.env.get(FabricManager);
-    const onCommissioningComplete = () => { void this.openCommissioning().catch(() => {}); };
+    // Reflect window state in the UI: any fabric change ends commissionable mode.
+    const onFabricEvent = () => this.closeWindow();
     try {
       this.commissioningServer = await server.act((agent) => agent.get(CommissioningServer));
-      this.commissioningServer.events.commissioned.on(onCommissioningComplete);
-      this.commissioningServer.events.fabricsChanged.on(onCommissioningComplete);
+      this.commissioningServer.events.commissioned.on(onFabricEvent);
+      this.commissioningServer.events.fabricsChanged.on(onFabricEvent);
     } catch (err) {
       console.error('[matter] could not subscribe to commissioning events:', (err as Error)?.message ?? err);
     }
-    const onFabricDeleted = () => {
-      if (fabricManager.fabrics.length === 0) void this.openCommissioning().catch(() => {});
-    };
-    fabricManager.events.deleted.on(onFabricDeleted);
-    this.fabricObserver = onCommissioningComplete;
-    this.fabricDeletedObserver = onFabricDeleted;
+    this.fabricObserver = onFabricEvent;
 
     // Track which controllers actually establish (CASE) sessions after this
     // bridge start. A fabric that never reconnects is a stale leftover from an
@@ -298,9 +268,10 @@ export class MatterBridge {
       console.error('[matter] could not subscribe to session events:', (err as Error)?.message ?? err);
     }
 
-    if (fabricManager.fabrics.length > 0) {
-      void this.openCommissioning().catch(() => {});
-    } else {
+    // Uncommissioned: matter.js already advertises as commissionable; just
+    // surface the open window to the UI. Commissioned: stay operational (the
+    // window is opened on demand via the UI button "Pairing erneut öffnen").
+    if (fabricManager.fabrics.length === 0) {
       this.openWindow();
     }
 
@@ -318,10 +289,11 @@ export class MatterBridge {
   }
 
   /**
-   * Re-open the commissioning window so another controller can be paired
-   * (Multi-Admin). The pairing code/passcode stays the same — Matter issues a
-   * single fixed code per device; additional controllers simply (re)use it
-   * while the commissioning window is open.
+   * Open the commissioning window so another controller can be paired
+   * (Multi-Admin). Called from the UI button "Pairing erneut öffnen". The
+   * pairing code/passcode stays the same — Matter issues a single fixed code
+   * per device; additional controllers simply (re)use it while the window is
+   * open.
    */
   async openCommissioning(): Promise<void> {
     if (!this.node) return;
@@ -414,14 +386,6 @@ export class MatterBridge {
     }
     this.sessionManager = undefined;
     this.fabricLastSeen.clear();
-    if (this.node && this.fabricDeletedObserver) {
-      try {
-        this.node.env.get(FabricManager).events.deleted.off(this.fabricDeletedObserver);
-      } catch {
-        /* ignore */
-      }
-      this.fabricDeletedObserver = undefined;
-    }
     if (this.commissioningTimer) {
       clearTimeout(this.commissioningTimer);
       this.commissioningTimer = undefined;

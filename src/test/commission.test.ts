@@ -80,14 +80,19 @@ async function main(): Promise<void> {
   assert(fabrics[0].stale === false, 'freshly commissioned fabric is not marked stale');
   assert(fabrics[0].lastSeen !== null, 'freshly commissioned fabric has a lastSeen timestamp');
 
-  // The commissioning window must be re-opened AFTER commissioning completed, otherwise
-  // a second controller (openHAB) cannot discover the bridge and times out.
-  assert(bridge.getCommissioningState().open === true, 'commissioning window re-opened after commissioning');
+  // Like matterbridge, the bridge does NOT keep a commissioning window open after
+  // commissioning: it enters operational mode. A second controller (openHAB) pairs
+  // again only while the window is (re)opened on demand via the UI button.
+  assert(bridge.getCommissioningState().open === false, 'commissioning window closed after commissioning');
+
+  // On-demand reopen (UI button "Pairing erneut öffnen") must open the window again.
+  await bridge.openCommissioning();
+  assert(bridge.getCommissioningState().open === true, 'commissioning window re-opened on demand');
 
   // Home Assistant (Google Play services) opens an enhanced commissioning window with its own
-  // passcode via the AdministratorCommissioning cluster. matter.js rejects that with Busy while
-  // any window is open (our Multi-Admin window) or while the basic window is open - and HA aborts
-  // the pairing. Our override must close the existing window and honor the request instead.
+  // passcode via the AdministratorCommissioning cluster. Our override must close any
+  // currently open window (here: the on-demand basic window) and honor the request instead
+  // of answering Busy - otherwise HA aborts the pairing.
   const verifier = await makePasscodeVerifier(20202021, controller.env.get(SessionManager).crypto);
   for (let attempt = 1; attempt <= 2; attempt++) {
     await peer.act((agent) =>

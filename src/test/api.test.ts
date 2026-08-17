@@ -2,6 +2,7 @@ import { PositionSimulator } from '../simulation/PositionSimulator';
 import { DeviceManager } from '../devices/DeviceManager';
 import { WebServer } from '../server/WebServer';
 import { RfxcomService } from '../rfxcom/RfxcomService';
+import { MatterBridge } from '../matter/MatterBridge';
 import { BridgeConfig } from '../config';
 import * as os from 'os';
 import * as path from 'path';
@@ -44,6 +45,11 @@ async function main(): Promise<void> {
   fs.writeFileSync(configFile, '# test config\n', 'utf8');
   const server = new WebServer(config.server, devices, rfxcom, { configPath: configFile });
   server.setPairingCode('123-45-678', 'MT:QR-DUMMY');
+  // The pairing code is only exposed while the commissioning window is open, so
+  // simulate an open window without spinning up a real Matter bridge.
+  server.setMatter({
+    setCommissioningCallback: (cb: (s: { open: boolean }) => void) => cb({ open: true }),
+  } as unknown as MatterBridge);
   await server.start();
 
   // GET /api/devices
