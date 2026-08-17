@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.9] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **MQTT** | **HA-Discovery-Messages verschwinden nicht mehr**: Die Discovery-Konfiguration wird nun beim Verbindungsaufbau **und danach alle 30 s erneut gepublished** (`announceAll`) und mit **QoS 1 + retain** versendet. Damit heilen sich HA-Entities selbst, falls retained Messages verloren gehen (Broker-Neustart, Verbindungsabbrüche, überschriebene Topics) |
+
 ## [0.2.8] – 2026-08-17
 
 ### Changed

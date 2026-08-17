@@ -16,6 +16,8 @@ export class MqttService {
   private config: MqttConfig;
   private devices: DeviceManager;
   private client: mqtt.MqttClient | null = null;
+  private announceTimer: NodeJS.Timeout | null = null;
+  private readonly announceIntervalMs = 30000;
 
   constructor(config: MqttConfig, devices: DeviceManager) {
     this.config = config;
@@ -33,9 +35,11 @@ export class MqttService {
     this.client.on('connect', () => {
       console.log('[mqtt] connected');
       if (this.config.discovery) {
-        for (const device of this.devices.list()) {
-          this.publishDiscovery(device);
-        }
+        // re-announce discovery now and periodically so HA entities
+        // self-heal if retained messages get lost (broker restart, flapping)
+        this.announceAll();
+        if (this.announceTimer) clearInterval(this.announceTimer);
+        this.announceTimer = setInterval(() => this.announceAll(), this.announceIntervalMs);
       }
       for (const device of this.devices.list()) {
         this.publish(device);
@@ -50,6 +54,14 @@ export class MqttService {
     this.client.on('error', (err) => console.error('[mqtt] error:', err.message));
 
     this.devices.on('device:update', (device) => this.publish(device));
+  }
+
+  /** (re-)publish HA discovery config for every device */
+  private announceAll(): void {
+    if (!this.config.discovery) return;
+    for (const device of this.devices.list()) {
+      this.publishDiscovery(device);
+    }
   }
 
   /** publish HA cover discovery for a device (each shutter gets its own device) */
@@ -85,7 +97,7 @@ export class MqttService {
       position_closed: 100,
       optimistic: true,
     };
-    this.client.publish(topic, JSON.stringify(payload), { retain: true });
+    this.client.publish(topic, JSON.stringify(payload), { retain: true, qos: 1 });
   }
 
   private handleMessage(topic: string, payload: string): void {
@@ -140,6 +152,10 @@ export class MqttService {
   }
 
   disconnect(): void {
+    if (this.announceTimer) {
+      clearInterval(this.announceTimer);
+      this.announceTimer = null;
+    }
     if (this.client) this.client.end(true);
   }
 }
