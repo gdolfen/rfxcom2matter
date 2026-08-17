@@ -3,6 +3,23 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.2] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Pairings werden jetzt persistent gespeichert.** matter.js legte den State bisher im Working Directory des Containers (`/app`) ab, das bei einem Image-Update verworfen wurde – dadurch gingen alle gekoppelten Controller (z. B. openHAB) verloren. Der State wird nun nach `${RFXCOM_DATA_DIR}/matter` (Volume `/app/data/matter`) geschrieben und überlebt Updates/Restarts |
+| **Matter** | Analyse-Fix für Home Assistant: Controller, die noch einen alten (nun ungültigen) Fabric besaßen, scheiterten mit `fabric-not-found`/CASE-Fehlern. Nach dem Update muss der alte Matter-Eintrag in HA einmal entfernt und neu gekoppelt werden; danach bleibt das Pairing erhalten |
+
+### Changed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | Commissioning-Fenster ist nur noch **60 Sekunden** geöffnet und schließt dann automatisch (vorher 15 Minuten) |
+| **Matter-UI** | Der Pairing-Code (manuell + QR) wird **nur noch angezeigt, solange das Commissioning-Fenster offen ist**; bei geschlossenem Fenster wird er ausgeblendet |
+| **Matter** | Beim Start mit bereits vorhandenen Fabrics wird das Commissioning-Fenster geöffnet, damit weitere Controller ohne Neustart hinzugefügt werden können |
+
 ## [0.2.1] – 2026-08-17
 
 ### Added

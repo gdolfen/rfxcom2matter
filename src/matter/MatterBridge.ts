@@ -7,7 +7,9 @@ import {
   MovementType,
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
-import { FabricManager } from '@matter/protocol';
+import { FabricManager, CommissioningConfigProvider } from '@matter/protocol';
+import { Minutes } from '@matter/general';
+import { join } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
 import { SimulatedDevice } from '../devices/types';
 import { MatterConfig } from '../config';
@@ -20,6 +22,11 @@ export interface FabricInfo {
   rootNodeId: string;
   rootVendorId: number;
   label: string;
+}
+
+/** State of the commissioning (pairing) window, pushed to the UI. */
+export interface MatterCommissioningState {
+  open: boolean;
 }
 
 const LiftingWindowCoveringServer = WindowCoveringServer.with('Lift', 'PositionAwareLift');
@@ -69,6 +76,12 @@ export class MatterBridge {
   private endpoints = new Map<string, Endpoint>();
   private listeners = new Set<(updated?: SimulatedDevice) => void>();
   private fabricObserver?: () => void;
+  private fabricDeletedObserver?: () => void;
+  private currentPairing: PairingInfo | null = null;
+  private commissioningOpen = false;
+  private commissioningCallback?: (state: MatterCommissioningState) => void;
+  private commissioningTimer?: ReturnType<typeof setTimeout>;
+  private readonly commissioningWindowS = 60;
 
   constructor(config: MatterConfig, devices: DeviceManager) {
     this.config = config;
@@ -100,6 +113,36 @@ export class MatterBridge {
       },
     });
 
+    // Persist Matter state (fabrics, operational credentials, root CA) inside the
+    // mounted data directory. matter.js defaults its storage path to the container's
+    // working directory ("."), which is discarded on image update and loses all
+    // pairings. Redirect it into the persistent volume before the filesystem is used.
+    const dataDir = process.env.RFXCOM_DATA_DIR || './data';
+    try {
+      server.env.vars.set('storage.path', join(dataDir, 'matter'));
+    } catch {
+      /* fall back to matter.js default location */
+    }
+
+    // Limit the commissioning window to `commissioningWindowS` seconds. matter.js
+    // defaults to 15 min and does not expose advertisementWindow via the public
+    // commissioning option, so inject it into the CommissioningConfigProvider
+    // that DeviceCommissioner reads. Must happen before server.start().
+    try {
+      const windowS = this.commissioningWindowS;
+      const existing = server.env.get(CommissioningConfigProvider);
+      server.env.set(
+        CommissioningConfigProvider,
+        new (class extends CommissioningConfigProvider {
+          override get values() {
+            return { ...existing.values, advertisementWindow: Minutes(windowS / 60) };
+          }
+        })(),
+      );
+    } catch {
+      /* fall back to matter.js default window */
+    }
+
     const aggregator = new Endpoint(AggregatorEndpoint, { id: 'aggregator' });
     await server.add(aggregator);
 
@@ -117,19 +160,39 @@ export class MatterBridge {
     console.log(`[matter] QR code: ${qrCode}`);
 
     this.node = server;
+    this.currentPairing = { manual: pairingCode, qr: qrCode };
 
-    // Multi-admin: after a controller commissions the bridge, re-open the
-    // commissioning window so further controllers can join using the SAME
-    // pairing code. Also re-open on start when fabrics already exist (e.g.
-    // after a restart), so an additional controller can be added without a
-    // manual step.
+    // Commissioning window handling (multi-admin + UI visibility):
+    // - When uncommissioned at start the device is already commissionable; we
+    //   just surface the open window to the UI for `commissioningWindowS`.
+    // - When a controller commissions the bridge we re-open the window so
+    //   further controllers can join using the SAME pairing code.
+    // - When the last fabric is removed the device becomes commissionable again.
     const fabricManager = server.env.get(FabricManager);
-    const reopen = () => { void this.openCommissioning(); };
-    fabricManager.events.added.on(reopen);
-    this.fabricObserver = reopen;
-    if (fabricManager.fabrics.length > 0) reopen();
+    const onFabricAdded = () => { void this.openCommissioning().catch(() => {}); };
+    const onFabricDeleted = () => { if (fabricManager.fabrics.length === 0) this.openWindow(); };
+    fabricManager.events.added.on(onFabricAdded);
+    fabricManager.events.deleted.on(onFabricDeleted);
+    this.fabricObserver = onFabricAdded;
+    this.fabricDeletedObserver = onFabricDeleted;
+
+    if (fabricManager.fabrics.length > 0) {
+      void this.openCommissioning().catch(() => {});
+    } else {
+      this.openWindow();
+    }
 
     return { manual: pairingCode, qr: qrCode };
+  }
+
+  /** Register a listener for commissioning-window state changes (UI push). */
+  setCommissioningCallback(cb: (state: MatterCommissioningState) => void): void {
+    this.commissioningCallback = cb;
+  }
+
+  /** Current commissioning-window state. */
+  getCommissioningState(): MatterCommissioningState {
+    return { open: this.commissioningOpen };
   }
 
   /**
@@ -144,6 +207,24 @@ export class MatterBridge {
     if (commissioning?.enterCommissionableMode) {
       await commissioning.enterCommissionableMode();
     }
+    this.openWindow();
+  }
+
+  /** Mark the commissioning window open and schedule auto-close. */
+  private openWindow(): void {
+    this.commissioningOpen = true;
+    this.emitCommissioning();
+    if (this.commissioningTimer) clearTimeout(this.commissioningTimer);
+    this.commissioningTimer = setTimeout(() => this.closeWindow(), this.commissioningWindowS * 1000);
+  }
+
+  private closeWindow(): void {
+    this.commissioningOpen = false;
+    this.emitCommissioning();
+  }
+
+  private emitCommissioning(): void {
+    this.commissioningCallback?.({ open: this.commissioningOpen });
   }
 
   private async addWindowCovering(parent: Endpoint, device: SimulatedDevice): Promise<Endpoint> {
@@ -193,6 +274,19 @@ export class MatterBridge {
       }
       this.fabricObserver = undefined;
     }
+    if (this.node && this.fabricDeletedObserver) {
+      try {
+        this.node.env.get(FabricManager).events.deleted.off(this.fabricDeletedObserver);
+      } catch {
+        /* ignore */
+      }
+      this.fabricDeletedObserver = undefined;
+    }
+    if (this.commissioningTimer) {
+      clearTimeout(this.commissioningTimer);
+      this.commissioningTimer = undefined;
+    }
+    this.commissioningOpen = false;
     if (this.node) {
       await this.node.close();
       this.node = null;

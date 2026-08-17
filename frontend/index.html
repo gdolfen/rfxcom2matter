@@ -223,7 +223,8 @@
         </div></div>
         <div id="pairing">Lädt…</div>
         <div id="pairing-qr"><img alt="Matter-Pairing-QR-Code" /></div>
-        <div class="hint" style="margin-top:8px;">Nach dem Koppeln eines Controllers bleibt der Code gleich. Das Commissioning-Fenster wird automatisch wieder geöffnet, damit ein weiterer Controller (z. B. Home Assistant) denselben Code nutzen kann. Bei Bedarf hier erneut öffnen:</div>
+        <div class="hint" id="pairing-closed-hint" style="margin-top:8px; display:none;">Das Pairing-Fenster ist geschlossen. Zum Hinzufügen eines weiteren Controllers unten „Pairing erneut öffnen“ klicken – der Code bleibt dabei derselbe.</div>
+        <div class="hint" style="margin-top:8px;">Nach dem Koppeln eines Controllers bleibt der Code gleich. Das Commissioning-Fenster wird automatisch wieder geöffnet (für 1 Minute), damit ein weiterer Controller (z. B. Home Assistant) denselben Code nutzen kann. Bei Bedarf hier erneut öffnen:</div>
         <button class="secondary" id="matter-reopen" style="margin-top:8px;">Pairing erneut öffnen (weiteren Controller hinzufügen)</button>
         <div class="save-msg" id="matter-reopen-msg"></div>
         <div class="device-header" style="margin-top:16px;"><div>
@@ -836,14 +837,27 @@
     fetch('/api/devices').then(r => r.json()).then(renderDevices);
     function refreshPairingCode() {
       fetch('/api/pairing-code').then(r => r.json()).then(d => {
-        document.getElementById('pairing').textContent = d.pairingCode || 'Matter deaktiviert';
         document.getElementById('bridge-status').textContent = d.status || 'unbekannt';
-        if (d.qrImage) {
-          const img = document.querySelector('#pairing-qr img');
-          img.src = d.qrImage;
-          document.getElementById('pairing-qr').style.display = 'block';
+        const codeEl = document.getElementById('pairing');
+        const qrEl = document.getElementById('pairing-qr');
+        const closedHint = document.getElementById('pairing-closed-hint');
+        if (!d.enabled) {
+          codeEl.textContent = 'Matter deaktiviert';
+          qrEl.style.display = 'none';
+          closedHint.style.display = 'none';
+        } else if (d.windowOpen && d.pairingCode) {
+          codeEl.textContent = d.pairingCode;
+          if (d.qrImage) {
+            document.querySelector('#pairing-qr img').src = d.qrImage;
+            qrEl.style.display = 'block';
+          } else {
+            qrEl.style.display = 'none';
+          }
+          closedHint.style.display = 'none';
         } else {
-          document.getElementById('pairing-qr').style.display = 'none';
+          codeEl.textContent = 'Pairing-Fenster geschlossen';
+          qrEl.style.display = 'none';
+          closedHint.style.display = 'block';
         }
       }).catch(() => {
         document.getElementById('bridge-status').textContent = 'offline';
@@ -851,6 +865,7 @@
     }
 
     socket.on('pairing-code', refreshPairingCode);
+    socket.on('matter-commissioning', refreshPairingCode);
     fetch('/api/version').then(r => r.json()).then(d => {
       const el = document.getElementById('app-version');
       if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');

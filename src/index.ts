@@ -83,9 +83,9 @@ async function main(): Promise<void> {
   await server.start();
 
   let matter = new MatterBridge(config.matter, devices);
+  server.setMatter(matter);
   let pairingInfo = await matter.start();
   server.setPairingCode(pairingInfo?.manual ?? null, pairingInfo?.qr ?? null);
-  server.setMatter(matter);
 
   let mqtt = new MqttService(config.mqtt, devices);
   mqtt.connect();
@@ -122,6 +122,7 @@ async function main(): Promise<void> {
       try {
         await matter.stop();
         matter = new MatterBridge(config.matter, devices);
+        server.setMatter(matter);
         if (config.matter.enabled) {
           pairingInfo = await matter.start();
           server.setPairingCode(pairingInfo?.manual ?? null, pairingInfo?.qr ?? null);
@@ -129,7 +130,6 @@ async function main(): Promise<void> {
           pairingInfo = undefined;
           server.setPairingCode(null, null);
         }
-        server.setMatter(matter);
         lastMatterKey = matterKey;
         lastDeviceKey = deviceKey;
       } catch (err) {

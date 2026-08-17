@@ -46,6 +46,7 @@ export class WebServer {
   private rfxcom: RfxcomService;
   private matter?: MatterBridge;
   private pairingCode: string | null = null;
+  private commissioningOpen = false;
   private qrCode: string | null = null;
   private port: number;
   private configPath?: string;
@@ -205,6 +206,10 @@ export class WebServer {
 
   setMatter(matter: MatterBridge): void {
     this.matter = matter;
+    matter.setCommissioningCallback((state) => {
+      this.commissioningOpen = state.open;
+      if (this.io) this.io.emit('matter-commissioning', state);
+    });
   }
 
   private loadConfigObject(): BridgeConfig | null {
@@ -356,7 +361,8 @@ export class WebServer {
 
     this.app.get('/api/pairing-code', async (_req, res) => {
       let qrDataUrl: string | null = null;
-      if (this.qrCode) {
+      // Only expose the pairing code while the commissioning window is open.
+      if (this.commissioningOpen && this.qrCode) {
         try {
           qrDataUrl = await QRCode.toDataURL(this.qrCode, { width: 220, margin: 1 });
         } catch (err) {
@@ -364,9 +370,11 @@ export class WebServer {
         }
       }
       res.json({
-        pairingCode: this.pairingCode ?? null,
-        qrCode: this.qrCode ?? null,
-        qrImage: qrDataUrl,
+        enabled: this.pairingCode != null,
+        windowOpen: this.commissioningOpen,
+        pairingCode: this.commissioningOpen ? this.pairingCode ?? null : null,
+        qrCode: this.commissioningOpen ? this.qrCode ?? null : null,
+        qrImage: this.commissioningOpen ? qrDataUrl : null,
         status: 'online',
       });
     });
