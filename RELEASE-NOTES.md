@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.4] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Matter-State wurde nicht persistent gespeichert** – `storage.path` wurde erst *nach* `ServerNode.create()` gesetzt, aber matter.js wertet den Pfad bereits beim Konstruieren aus und cached ihn. Dadurch griff der Default (flüchtiger Container-Speicher bzw. Plattform-Standard), sodass alle gekoppelten Fabrics bei jedem Neustart verloren gingen (openHAB verschwand, Pairings hielten nicht). `storage.path` wird nun auf `Environment.default` **vor** `ServerNode.create()` gesetzt und zeigt auf `${RFXCOM_DATA_DIR}/matter` (Volume `/app/data/matter`). Damit überleben Pairings Updates/Restarts |
+
 ## [0.2.3] – 2026-08-17
 
 ### Fixed

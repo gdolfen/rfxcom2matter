@@ -1,4 +1,4 @@
-import { ServerNode, Endpoint, VendorId } from '@matter/main';
+import { ServerNode, Endpoint, VendorId, Environment } from '@matter/main';
 import { AggregatorEndpoint } from '@matter/main/endpoints/aggregator';
 import { WindowCoveringDevice } from '@matter/main/devices/window-covering';
 import { BridgedDeviceBasicInformationServer } from '@matter/main/behaviors/bridged-device-basic-information';
@@ -10,7 +10,7 @@ import {
 import { FabricManager, CommissioningConfigProvider } from '@matter/protocol';
 import { CommissioningServer } from '@matter/node';
 import { Minutes } from '@matter/general';
-import { join } from 'path';
+import { resolve } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
 import { SimulatedDevice } from '../devices/types';
 import { MatterConfig } from '../config';
@@ -95,6 +95,20 @@ export class MatterBridge {
       return undefined;
     }
 
+    // Persist Matter state (fabrics, operational credentials, root CA) inside the
+    // mounted data directory. matter.js resolves the storage path at ServerNode
+    // *construction* time and caches it, so it must be configured on the default
+    // environment BEFORE ServerNode.create(). Setting it afterwards is silently
+    // ignored and the state would land in matter.js' platform default location,
+    // which is discarded on container restart and loses all pairings.
+    const storageDir = resolve(process.env.RFXCOM_DATA_DIR || 'data', 'matter');
+    try {
+      Environment.default.vars.set('storage.path', storageDir);
+      console.log(`[matter] persisting Matter state in ${storageDir}`);
+    } catch (err) {
+      console.error('[matter] could not set storage path:', (err as Error)?.message ?? err);
+    }
+
     const server = await ServerNode.create({
       id: 'rfxcom2matter',
       network: { port: this.config.port },
@@ -113,17 +127,6 @@ export class MatterBridge {
         uniqueId: 'rfxcom2matter-v1',
       },
     });
-
-    // Persist Matter state (fabrics, operational credentials, root CA) inside the
-    // mounted data directory. matter.js defaults its storage path to the container's
-    // working directory ("."), which is discarded on image update and loses all
-    // pairings. Redirect it into the persistent volume before the filesystem is used.
-    const dataDir = process.env.RFXCOM_DATA_DIR || './data';
-    try {
-      server.env.vars.set('storage.path', join(dataDir, 'matter'));
-    } catch {
-      /* fall back to matter.js default location */
-    }
 
     // Limit the commissioning window to `commissioningWindowS` seconds. matter.js
     // defaults to 15 min and does not expose advertisementWindow via the public
