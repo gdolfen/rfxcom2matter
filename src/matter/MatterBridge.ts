@@ -8,6 +8,7 @@ import {
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
 import { FabricManager, CommissioningConfigProvider } from '@matter/protocol';
+import { CommissioningServer } from '@matter/node';
 import { Minutes } from '@matter/general';
 import { join } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
@@ -203,9 +204,13 @@ export class MatterBridge {
    */
   async openCommissioning(): Promise<void> {
     if (!this.node) return;
-    const commissioning = (this.node as unknown as { commissioning?: { enterCommissionableMode?: () => Promise<void> } }).commissioning;
-    if (commissioning?.enterCommissionableMode) {
-      await commissioning.enterCommissionableMode();
+    try {
+      // Matter.js does not expose the CommissioningServer as a property on the
+      // node; the instance is reached through an action context. Running inside
+      // `act()` is required so the call executes with a valid actor/transaction.
+      await this.node.act((agent) => agent.get(CommissioningServer).enterCommissionableMode());
+    } catch (err) {
+      console.error('[matter] failed to open commissioning window:', (err as Error)?.message ?? err);
     }
     this.openWindow();
   }

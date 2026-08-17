@@ -3,6 +3,15 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.3] – 2026-08-17
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Commissioning-Fenster wurde faktisch nie geöffnet** – `openCommissioning()` rief `server.commissioning.enterCommissionableMode()` auf, aber matter.js stellt `server.commissioning` gar nicht als Property bereit (es ist immer `undefined`). Dadurch wurde zwar das UI-Flag gesetzt, aber **nie eine `commissionable`-mDNS-Aussendung verschickt**, sodass ein zweiter Controller (z. B. Home Assistant) den Bridge-Code nicht entdecken konnte. Der korrekte Aufruf erfolgt nun über `server.act((agent) => agent.get(CommissioningServer).enterCommissionableMode())`. Multi-Admin-Reopening funktioniert damit erstmals korrekt |
+| **Matter** | `@matter/node` als explizite Dependency ergänzt (zuvor nur transitiv vorhanden), da `CommissioningServer` von dort bezogen wird |
+
 ## [0.2.2] – 2026-08-17
 
 ### Fixed

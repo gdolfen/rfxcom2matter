@@ -1,6 +1,6 @@
 {
   "name": "rfxcom2matter",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "RFXCom to Matter bridge with web UI for configuration and control",
   "main": "dist/index.js",
   "type": "commonjs",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@matter/main": "^0.17.9",
+    "@matter/node": "^0.17.9",
     "@matter/protocol": "^0.17.9",
     "express": "^5.2.1",
     "js-yaml": "^5.3.0",
