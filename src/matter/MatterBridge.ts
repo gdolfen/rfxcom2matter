@@ -7,7 +7,21 @@ import {
   MovementType,
   WindowCoveringServer,
 } from '@matter/main/behaviors/window-covering';
-import { FabricManager, SessionManager } from '@matter/protocol';
+import { AdministratorCommissioningServer } from '@matter/node/behaviors/administrator-commissioning';
+import { AdministratorCommissioning } from '@matter/types/clusters/administrator-commissioning';
+import { CRYPTO_PBKDF_ITERATIONS_MAX, CRYPTO_PBKDF_ITERATIONS_MIN, Seconds, Time } from '@matter/general';
+import {
+  PAKE_PASSCODE_VERIFIER_LENGTH,
+  Status,
+  StatusResponseError,
+} from '@matter/types';
+import {
+  DeviceCommissioner,
+  FabricManager,
+  PaseServer,
+  SessionManager,
+  hasRemoteActor,
+} from '@matter/protocol';
 import type { NodeSession } from '@matter/protocol';
 import { CommissioningServer } from '@matter/node';
 import { resolve } from 'path';
@@ -48,21 +62,138 @@ function vendorNameFor(vendorId: number): string {
 }
 
 /**
- * AdministratorCommissioning override is intentionally NOT installed, to
- * behave exactly like matterbridge (same matter.js 0.17.9).
+ * AdministratorCommissioning override that arms the Enhanced Commissioning
+ * Window requested by a controller (e.g. the Google Play services Matter engine
+ * used by the Home Assistant Android app) even while this bridge advertises its
+ * basic commissioning window (uncommissioned).
  *
- * When the Home Assistant Android "Matter engine" calls openCommissioningWindow
- * while the bridge advertises its basic commissioning window (uncommissioned or
- * opened via the UI button), matter.js 0.17.9 answers with a MatterFlowError
- * ("Basic commissioning window is already open"). The engine treats that as a
- * fallback and commissions with the QR passcode against the still-active basic
- * window - which is what works.
+ * Why this is needed - the HA/Google Android flow does NOT commission with the
+ * QR passcode:
+ *   1. The engine establishes a PASE session with the bridge (QR passcode).
+ *   2. It calls AdministratorCommissioning.openCommissioningWindow with a FRESH
+ *      passcode verifier of its own (P_g) and hands that new passcode to
+ *      matter-server.
+ *   3. matter-server commissions over the enhanced window using P_g.
+ * Real devices (e.g. the Aqara M100 the user paired successfully) behave
+ * exactly like that.
  *
- * The previous override instead closed the basic window and opened an enhanced
- * window with the engine's own generated passcode. matter-server however
- * commissions with the QR passcode (20202021), so the bridge rejected the PASE
- * attempt with CHIP_ERROR_INVALID_PASE_PARAMETER ("Invalid PASE parameter").
+ * matter.js 0.17.9 rejects that call on an uncommissioned device, so the
+ * enhanced window is never armed and matter-server's PASE with P_g is rejected
+ * by the still-open basic window (CHIP_ERROR_INVALID_PASE_PARAMETER):
+ *   - the engine's PASE session auto-arms a failsafe (GeneralCommissioningServer),
+ *     so the base class' #assertCommissioningWindowRequirements throws Busy; AND
+ *   - the auto-advertised basic window would make allowEnhancedCommissioning
+ *     throw MatterFlowError.
+ *
+ * This override honors the request instead: close the basic window, then arm
+ * the enhanced window with the caller's verifier. The failsafe Busy guard is
+ * deliberately not enforced - the failsafe merely guards the commissionable
+ * state during a commissioning and stays valid for the subsequent commissioning
+ * by matter-server (its PASE/armFailSafe simply extends it).
  */
+class RfxcomAdministratorCommissioningServer extends AdministratorCommissioningServer {
+  static override lockOnInvoke = false;
+
+  override async openCommissioningWindow({
+    pakePasscodeVerifier,
+    discriminator,
+    iterations,
+    salt,
+    commissioningTimeout,
+  }: AdministratorCommissioning.OpenCommissioningWindowRequest) {
+    if (pakePasscodeVerifier.byteLength !== PAKE_PASSCODE_VERIFIER_LENGTH) {
+      throw new AdministratorCommissioning.PakeParameterError('PAKE passcode verifier length is invalid');
+    }
+    if (iterations < CRYPTO_PBKDF_ITERATIONS_MIN || iterations > CRYPTO_PBKDF_ITERATIONS_MAX) {
+      throw new AdministratorCommissioning.PakeParameterError('PAKE iterations invalid');
+    }
+    if (salt.byteLength < 16 || salt.byteLength > 32) {
+      throw new AdministratorCommissioning.PakeParameterError('PAKE salt has invalid length.');
+    }
+    const commissioner = this.env.get(DeviceCommissioner);
+    const timeout = Seconds(commissioningTimeout);
+
+    if (timeout > this.internal.maximumCommissioningTimeout) {
+      throw new StatusResponseError(
+        `Commissioning timeout must not exceed ${this.internal.maximumCommissioningTimeout} seconds.`,
+        Status.InvalidCommand,
+      );
+    }
+    if (timeout < this.internal.minimumCommissioningTimeout) {
+      throw new StatusResponseError(
+        `Commissioning timeout must not be lower then ${this.internal.minimumCommissioningTimeout} seconds.`,
+        Status.InvalidCommand,
+      );
+    }
+
+    // Close the auto-advertised basic commissioning window (uncommissioned
+    // device) so allowEnhancedCommissioning below does not throw. No-op when
+    // the bridge is operational and no window is open.
+    await commissioner.endCommissioning();
+
+    if (commissioner.isFailsafeArmed) {
+      console.log(
+        '[matter] openCommissioningWindow: caller PASE session holds a failsafe - arming enhanced window anyway',
+      );
+    }
+
+    if (this.internal.commissioningWindowTimeout !== undefined) {
+      throw new AdministratorCommissioning.BusyError('A commissioning window is already opened');
+    }
+
+    const actor = hasRemoteActor(this.context) ? this.context.session.via : 'local actor';
+    console.log(`[matter] enhanced commissioning window timer started for ${commissioningTimeout}s for ${actor}`);
+
+    this.internal.commissioningWindowTimeout = Time.getTimer(
+      'Commissioning timeout',
+      timeout,
+      this.callback(() => {
+        void this.env.get(DeviceCommissioner).endCommissioning();
+      }),
+    ).start();
+
+    // Track the requesting controller in the AdministratorCommissioning
+    // attributes. PASE sessions carry no fabric, so those stay unset.
+    if (hasRemoteActor(this.context)) {
+      const adminFabric = this.context.session.fabric;
+      if (adminFabric !== undefined) {
+        this.state.adminFabricIndex = adminFabric.fabricIndex;
+        this.state.adminVendorId = adminFabric.rootVendorId;
+        const removeCallback = this.callback(this.clearAdminFabric);
+        adminFabric.deleting.on(removeCallback);
+        this.internal.stopMonitoringFabricForRemoval = () => adminFabric.deleting.off(removeCallback);
+      }
+    }
+    this.state.windowStatus = AdministratorCommissioning.CommissioningWindowStatus.EnhancedWindowOpen;
+
+    await commissioner.allowEnhancedCommissioning(
+      discriminator,
+      PaseServer.fromVerificationValue(this.env.get(SessionManager), pakePasscodeVerifier, { iterations, salt }),
+      this.callback(this.closeEnhancedWindow),
+    );
+  }
+
+  private closeEnhancedWindow() {
+    if (this.internal.commissioningWindowTimeout !== undefined) {
+      this.internal.commissioningWindowTimeout.stop();
+      this.internal.commissioningWindowTimeout = undefined;
+    }
+    this.internal.stopMonitoringFabricForRemoval?.();
+    this.internal.stopMonitoringFabricForRemoval = undefined;
+    this.state.adminFabricIndex = null;
+    this.state.adminVendorId = null;
+    this.state.windowStatus = AdministratorCommissioning.CommissioningWindowStatus.WindowNotOpen;
+  }
+
+  private clearAdminFabric() {
+    this.state.adminFabricIndex = null;
+    this.internal.stopMonitoringFabricForRemoval?.();
+    this.internal.stopMonitoringFabricForRemoval = undefined;
+  }
+}
+
+/** Root endpoint variant with the HA/Google enhanced-window handling wired in. */
+const RfxcomRootEndpoint = ServerNode.RootEndpoint.with(RfxcomAdministratorCommissioningServer);
 
 /** State of the commissioning (pairing) window, pushed to the UI. */
 export interface MatterCommissioningState {
@@ -151,7 +282,7 @@ export class MatterBridge {
       console.error('[matter] could not set storage path:', (err as Error)?.message ?? err);
     }
 
-    const server = await ServerNode.create(ServerNode.RootEndpoint, {
+    const server = await ServerNode.create(RfxcomRootEndpoint, {
       id: 'rfxcom2matter',
       network: { port: this.config.port, tcp: true, transportPreference: 'udp' },
       commissioning: { passcode: 20202021, discriminator: this.config.discriminator },
@@ -191,21 +322,25 @@ export class MatterBridge {
     this.node = server;
     this.currentPairing = { manual: pairingCode, qr: qrCode };
 
-    // Commissioning window handling (matterbridge-style, no permanently open
-    // window): the device is only commissionable while uncommissioned (matter.js
-    // auto-advertises at start) or while the user explicitly opened a window via
-    // the UI button (openCommissioning). After a controller has commissioned the
-    // bridge, matter.js enters operational mode and stops advertising.
+    // Commissioning window handling: the device is only commissionable while
+    // uncommissioned (matter.js auto-advertises at start) or while the user
+    // explicitly opened a window via the UI button (openCommissioning). After a
+    // controller has commissioned the bridge, matter.js enters operational mode
+    // and stops advertising.
+    //
+    // The HA/Google Android flow (which successfully paired the Aqara M100 in
+    // this network) does NOT commission with the QR passcode: the engine PASEs,
+    // arms an enhanced window with its own fresh passcode via
+    // RfxcomAdministratorCommissioningServer, and matter-server then commissions
+    // against that enhanced window. The override installed above makes that work
+    // on this bridge.
     //
     // NOTE: we must NOT re-enter commissionable mode from
     // FabricManager.events.added. That event fires while the controller is still
     // mid-commissioning (right after AddNOC, before it establishes CASE and sends
     // CommissioningComplete). Re-entering at that point is torn down again by
     // DeviceCommissioner.endCommissioning(), breaks the ongoing pairing and
-    // leaves no commissionable advertisement behind. The always-open Multi-Admin
-    // window this bridge used to keep also made the HA/Google commissioning flow
-    // answer "Busy" (see RfxcomAdministratorCommissioningServer) - dropping it
-    // removes that conflict entirely, like matterbridge.
+    // leaves no commissionable advertisement behind.
     const fabricManager = server.env.get(FabricManager);
     // Reflect window state in the UI: any fabric change ends commissionable mode.
     const onFabricEvent = () => this.closeWindow();

@@ -3,6 +3,15 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.11] – 2026-08-18
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **HA-/Google-Android-Pairing wieder über die Matter-Engine (Enhanced-Fenster)**: Die Phone-Matter-Engine PASEt, öffnet per `AdministratorCommissioning.openCommissioningWindow` ein Enhanced-Fenster mit einem selbst erzeugten Passcode `P_g` und reicht diesen an matter-server weiter, der dann gegen das Enhanced-Fenster kommissioniert. matter.js 0.17.9 lehnt `openCommissioningWindow` über eine PASE-Session standardmäßig ab (Busy/Auto-Failsafe), weshalb 0.2.10 den Override entfernt hatte – damit kommissioniert matter-server mit dem QR-Passcode gegen das Basic-Fenster. Das funktionierte im Gegensatz zum erfolgreichen Aqara-M100-Pairing nicht. Der `RfxcomAdministratorCommissioningServer`-Override ist nun korrekt implementiert: `openCommissioningWindow` wird auch über PASE angenommen (PAKE-Parameter-Validierung, Timeout-Konvertierung Sekunden→Millisekunden, `endCommissioning` vor dem Öffnen, Fabric-Attribute nur bei CASE-Session) und das Enhanced-Fenster mit dem von der Engine gelieferten Passcode-Verifier geöffnet; matter-server kommissioniert damit erfolgreich gegen das Enhanced-Fenster |
+| **Test** | Der Commissioning-Test bildet den vollständigen Ablauf nach: QR-Kommissionierung (Fabric 1), `openCommissioningWindow` mit frischem Passcode `P_g` (12345678) samt Kommissionierung mit `P_g` gegen das Enhanced-Fenster (Fabric 2) und QR-Fallback nach On-Demand-Öffnung des Basic-Fensters (Fabric 3, im separaten Prozess wie matter-server, damit der geteilte In-Process-mDNS-Solver nicht kollidiert) |
+
 ## [0.2.10] – 2026-08-17
 
 ### Fixed
