@@ -28,6 +28,7 @@ import { resolve } from 'path';
 import { DeviceManager } from '../devices/DeviceManager';
 import { SimulatedDevice } from '../devices/types';
 import { MatterConfig } from '../config';
+import { getVersion } from '../version';
 
 /** A commissioned Matter client (controller) connected to this bridge. */
 export interface FabricInfo {
@@ -59,6 +60,12 @@ function vendorNameFor(vendorId: number): string {
     default:
       return `Vendor 0x${vendorId.toString(16).toUpperCase()}`;
   }
+}
+
+/** Convert a semver string "major.minor.patch" to a single integer (major*10000 + minor*100 + patch). */
+function versionToNum(v: string): number {
+  const m = v.split('.').map(Number);
+  return (m[0] || 0) * 10000 + (m[1] || 0) * 100 + (m[2] || 0);
 }
 
 /**
@@ -442,8 +449,8 @@ export class MatterBridge {
           productLabel: device.title,
           serialNumber: `rfxcom-${device.id}`,
           reachable: true,
-          softwareVersion: 1,
-          softwareVersionString: '1.0',
+          softwareVersion: versionToNum(getVersion()),
+          softwareVersionString: getVersion(),
         },
       },
     );
