@@ -3,6 +3,23 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.12] – 2026-08-31
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **MQTT/HA** | **Position invers für Home Assistant korrigiert**: HA verwendet 0%=closed, 100%=open (Gegenteil von Matter). Die MQTT-Discovery publiziert jetzt `position_open: 100`, `position_closed: 0` und invertiert Positionsangaben in den Templates (`{{100 - position}}`). Damit zeigt HA die korrekte Position an, ohne manuelle Konfiguration |
+| **MQTT/HA** | **Empfangene Positionen korrekt invertiert**: Set-Position-Template rechnet HA-konforme Werte in unser internes Modell (0=open, 100=closed) um |
+| **Matter** | **Kein Stopp-Timer bei 0%/100%**: Werden 0% oder 100% angefordert, wird der RFY-Motor nicht nach einer berechneten Zeit gestoppt – er fährt vollständig hoch/runter. Die simulierte Zeitsposition läuft weiterhin für das Frontend |
+| **Matter** | **Korrekte RFY-Richtung bei 0%/100%**: Bei Zielposition 0% wird immer `up`, bei 100% immer `down` gesendet – auch wenn die aktuelle Position bereits am Ziel ist |
+
+### Changed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Position** | `DeviceManager.moveTo()` behandelt 0%/100% nicht mehr sonder – die Zeitsimulation läuft immer, und der Callback sorgt für den korrekten RFY-Befehl ohne Stopp-Timer |
+
 ## [0.2.11] – 2026-08-18
 
 ### Fixed

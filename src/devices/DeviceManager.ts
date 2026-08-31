@@ -150,10 +150,10 @@ export class DeviceManager extends EventEmitter {
   moveTo(id: string, target: number): boolean {
     const device = this.devices.get(id);
     if (!device) return false;
-    // partial positioning relies on timed travel -> requires time-based simulation
     if (!device.timeBasedPosition) return false;
-    this.callbacks?.onCommand(id, `position:${target}`);
-    this.simulator.moveTo(device, target);
+    const clampedTarget = Math.max(0, Math.min(100, target));
+    this.callbacks?.onCommand(id, `position:${clampedTarget}`);
+    this.simulator.moveTo(device, clampedTarget);
     return true;
   }
 

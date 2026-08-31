@@ -43,15 +43,20 @@ async function main(): Promise<void> {
           break;
         default:
           if (command.startsWith('position:')) {
-            // position command: derive direction and a timed stop
             const target = Number(command.split(':')[1]);
             const device = devices.get(deviceId);
             if (device && device.timeBasedPosition) {
-              const distance = Math.abs(target - device.state.position);
-              rfyCommand = target > device.state.position ? 'down' : 'up';
-              if (distance > 0) {
-                const travelTimeMs = rfyCommand === 'down' ? device.travelTimeDown : device.travelTimeUp;
-                stopDelayMs = (distance / 100) * travelTimeMs;
+              if (target === 0) {
+                rfyCommand = 'up';
+              } else if (target === 100) {
+                rfyCommand = 'down';
+              } else {
+                const distance = Math.abs(target - device.state.position);
+                rfyCommand = target > device.state.position ? 'down' : 'up';
+                if (distance > 0) {
+                  const travelTimeMs = rfyCommand === 'down' ? device.travelTimeDown : device.travelTimeUp;
+                  stopDelayMs = (distance / 100) * travelTimeMs;
+                }
               }
             }
           }

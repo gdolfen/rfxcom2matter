@@ -82,7 +82,7 @@ export class MqttService {
       },
       command_topic: `${base}/command/rfy/${id}`,
       set_position_topic: `${base}/command/rfy/${id}`,
-      set_position_template: '{"command":"position","target":{{position}}}',
+      set_position_template: '{"command":"position","target":{{100 - position}}}',
       position_topic: `${base}/devices/${id}`,
       position_template: '{{ value_json.position }}',
       state_topic: `${base}/devices/${id}`,
@@ -93,8 +93,8 @@ export class MqttService {
       payload_open: '{"command":"open"}',
       payload_close: '{"command":"close"}',
       payload_stop: '{"command":"stop"}',
-      position_open: 0,
-      position_closed: 100,
+      position_open: 100,
+      position_closed: 0,
       optimistic: true,
     };
     this.client.publish(topic, JSON.stringify(payload), { retain: true, qos: 1 });
@@ -143,9 +143,8 @@ export class MqttService {
     const topic = `${this.config.base_topic}/devices/${this.topicId(device.name)}`;
     const state = device.state.state === 'opening' ? 'opening' : device.state.state === 'closing' ? 'closing' : 'stopped';
     const payload = JSON.stringify({
-      position: Math.round(device.state.position),
+      position: Math.round(100 - device.state.position),
       state,
-      // HA cover friendly strings
       ha_state: device.state.position === 0 ? 'open' : device.state.position >= 100 ? 'closed' : state,
     });
     this.client.publish(topic, payload, { retain: true });
