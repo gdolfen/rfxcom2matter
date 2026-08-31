@@ -442,6 +442,8 @@ export class MatterBridge {
           productLabel: device.title,
           serialNumber: `rfxcom-${device.id}`,
           reachable: true,
+          softwareVersion: 1,
+          softwareVersionString: '1.0',
         },
       },
     );
