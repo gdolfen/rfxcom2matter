@@ -13,6 +13,7 @@ Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 | **MQTT/HA** | **Empfangene Positionen korrekt invertiert**: Set-Position-Template rechnet HA-konforme Werte in unser internes Modell (0=open, 100=closed) um |
 | **Matter** | **Kein Stopp-Timer bei 0%/100%**: Werden 0% oder 100% angefordert, wird der RFY-Motor nicht nach einer berechneten Zeit gestoppt – er fährt vollständig hoch/runter. Die simulierte Zeitsposition läuft weiterhin für das Frontend |
 | **Matter** | **Korrekte RFY-Richtung bei 0%/100%**: Bei Zielposition 0% wird immer `up`, bei 100% immer `down` gesendet – auch wenn die aktuelle Position bereits am Ziel ist |
+| **Matter** | **UnsupportedAttribute-Fehler für SoftwareVersion behoben**: Der Controller (HA) fragt `bridgedDeviceBasicInformation` Attribute `0x9` (SoftwareVersion) und `0xa` (SoftwareVersionString) an, die die Bridge bisher nicht lieferte. Jetzt werden `softwareVersion: 1` und `softwareVersionString: '1.0'` gesetzt – die `UnsupportedAttribute(134)`-Fehler im Log verschwinden |
 
 ### Changed
 
