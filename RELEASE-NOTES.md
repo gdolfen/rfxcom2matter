@@ -9,7 +9,17 @@ Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
 | Bereich | Funktion |
 | --- | --- |
-| **Matter** | **softwareVersion/softwareVersionString nutzen jetzt den package.json-Wert**: Statt hardcoded `1`/`'1.0'` wird jetzt `getVersion()` aus `version.ts` verwendet – `softwareVersionString` entspricht der aktuellen Projekt-Version (z.B. `0.2.13`), `softwareVersion` ist der numerisch kodierte Wert (Major×10000 + Minor×100 + Patch) |
+| **Position** | **Anzeige-Verzögerung behoben**: Der `PositionSimulator` nutzt jetzt Wall-Clock-Zeit (`Date.now()`) statt fester 100ms-Steps. Die angezeigte Position stimmt jetzt auch unter Last genau mit der realen Motorposition überein |
+| **RFY** | **Überfahren bei parallelen Bewegungen verhindert**: Stop-Timer werden jetzt pro Gerät getrackt und bei neuem Befehl abgebrochen. Zusätzlich wird die TX-Queue-Tiefe beim Stop-Timer berücksichtigt (30ms pro Slot), sodass bei10 parallelen Bewegungen kein Stopp-Befehl zu spät kommt |
+| **Matter** | **Positionsanzeige in openHAB korrigiert**: `targetPositionLiftPercent100ths` und `operationalStatus` werden jetzt zusätzlich zu `currentPositionLiftPercent100ths` gesetzt, damit Controller Subscription-Reports korrekt empfangen |
+| **Matter** | **softwareVersion/softwareVersionString**: Nutzt jetzt den package.json-Wert statt hardcoded `1`/`'1.0'` |
+
+### Changed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Simulation** | `DeviceState` um `moveStartTime` und `moveStartPos` erweitert für Wall-Clock-Berechnung |
+| **Stop-Logik** | Stopp-Timer pro Gerät mit `pendingStops`-Map und `estimatedQueueFree`-Tracking |
 
 ## [0.2.12] – 2026-08-31
 
