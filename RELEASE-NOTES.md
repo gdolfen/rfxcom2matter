@@ -3,7 +3,7 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
-## [0.2.13] – 2026-08-31
+## [0.2.14] – 2026-08-31
 
 ### Fixed
 
