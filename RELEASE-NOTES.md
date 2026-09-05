@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.15] – 2026-09-05
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Positionsanzeige in openHAB korrigiert (2)**: Initiale Position wird jetzt NACH `parent.add()` gesetzt, wenn der matter.js Datasource bereits live ist. Vorher hat `initialize()` die Position wieder auf `null` zurückgesetzt |
+
 ## [0.2.14] – 2026-08-31
 
 ### Fixed
