@@ -9,7 +9,7 @@ Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
 | Bereich | Funktion |
 | --- | --- |
-| **Matter** | **Positionsanzeige in openHAB korrigiert (2)**: `endpoint.set()` wird jetzt mit `await` aufgerufen und setzt explizit `currentPositionLiftPercentage`, `operationalStatus.global` und `operationalStatus.tilt`. Der Listener ist jetzt async, sodass die Subscription-Reports garantiert gesendet werden, bevor der nächste Tick feuert |
+| **Matter** | **Positionsanzeige in openHAB korrigiert (2)**: Auto-Sync-Reaktoren von matter.js sind jetzt deaktiviert (`disableOperationalModeHandling = true`). Alle Attribute (`currentPositionLiftPercent100ths`, `currentPositionLiftPercentage`, `operationalStatus.global`, `operationalStatus.lift`, `operationalStatus.tilt`) werden explizit gesetzt. Listener ist async mit `await endpoint.set()` |
 
 ## [0.2.15] – 2026-09-05
 

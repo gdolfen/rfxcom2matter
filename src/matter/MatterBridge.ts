@@ -215,6 +215,15 @@ const LiftingWindowCoveringServer = WindowCoveringServer.with('Lift', 'PositionA
  */
 function createShutterServer(deviceId: string, devices: DeviceManager) {
   return class ShutterServer extends LiftingWindowCoveringServer {
+    constructor(agent: any, backing: any) {
+      super(agent, backing);
+      // Disable auto-sync reactors so our explicit endpoint.set() calls
+      // are not overridden by matter.js internal logic (which can cause
+      // position jumps because the reactors compute operationalStatus
+      // from the OLD currentPositionLiftPercent100ths during preCommit).
+      (this as any).internal.disableOperationalModeHandling = true;
+    }
+
     override async handleMovement(
       _type: MovementType,
       _reversed: boolean,
