@@ -3,6 +3,14 @@
 Alle wesentlichen Änderungen zu diesem Projekt werden in dieser Datei dokumentiert.
 Das Format lehnt sich an [Keep a Changelog](https://keepachangelog.com/) an.
 
+## [0.2.17] – 2026-09-05
+
+### Fixed
+
+| Bereich | Funktion |
+| --- | --- |
+| **Matter** | **Positionsanzeige stabilisiert**: `disableOperationalModeHandling = true` verhindert, dass matter.js Auto-Sync-Reaktoren unsere expliziten Attribut-Werte überschreiben und Positionen springen lassen |
+
 ## [0.2.16] – 2026-09-05
 
 ### Fixed
