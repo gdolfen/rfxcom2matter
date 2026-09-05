@@ -455,6 +455,9 @@ export class MatterBridge {
       },
     );
 
+    const pos100ths = Math.round(device.state.position * 100);
+    const initLiftStatus = device.state.state === 'opening' ? 1 : device.state.state === 'closing' ? 2 : 0;
+
     // push simulated position into Matter attributes
     const listener = (updated?: SimulatedDevice) => {
       if (!updated || updated.id !== device.id) return;
@@ -475,6 +478,17 @@ export class MatterBridge {
     this.listeners.add(listener);
 
     await parent.add(endpoint);
+
+    // Set initial position AFTER parent.add() so the behavior's initialize()
+    // (which syncs target = current) has already run and the Datasource is live.
+    endpoint.set({
+      windowCovering: {
+        currentPositionLiftPercent100ths: pos100ths,
+        targetPositionLiftPercent100ths: pos100ths,
+        operationalStatus: { lift: initLiftStatus },
+      },
+    });
+
     return endpoint;
   }
 
