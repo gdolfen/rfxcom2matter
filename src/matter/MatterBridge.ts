@@ -458,9 +458,16 @@ export class MatterBridge {
     // push simulated position into Matter attributes
     const listener = (updated?: SimulatedDevice) => {
       if (!updated || updated.id !== device.id) return;
+      const pos100ths = Math.round(updated.state.position * 100);
+      const target100ths = updated.state.targetPosition !== null
+        ? Math.round(updated.state.targetPosition * 100)
+        : pos100ths;
+      const liftStatus = updated.state.state === 'opening' ? 1 : updated.state.state === 'closing' ? 2 : 0;
       endpoint.set({
         windowCovering: {
-          currentPositionLiftPercent100ths: Math.round(updated.state.position * 100),
+          currentPositionLiftPercent100ths: pos100ths,
+          targetPositionLiftPercent100ths: target100ths,
+          operationalStatus: { lift: liftStatus },
         },
       });
     };
