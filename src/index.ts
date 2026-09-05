@@ -24,9 +24,23 @@ async function main(): Promise<void> {
   rfxcom.on('status', (status) => console.log(`[rfxcom] status: ${status}`));
   rfxcom.on('error', (err) => console.error('[rfxcom] error:', err?.message ?? err));
 
+  // Per-device pending stop timers: cancel previous stops when new command arrives
+  const pendingStops = new Map<string, ReturnType<typeof setTimeout>>();
+  // Estimated time the TX queue will be free (for staggering stop commands)
+  let estimatedQueueFree = 0;
+  // Estimated time for one RFY command to be transmitted (ms)
+  const TX_SLOT_MS = 30;
+
   // bridge RFY commands to the USB stick (if ready); simulation always runs
   devices.setCallbacks({
     onCommand: (deviceId, command) => {
+      // Cancel any pending stop for this device when a new command arrives
+      const prev = pendingStops.get(deviceId);
+      if (prev !== undefined) {
+        clearTimeout(prev);
+        pendingStops.delete(deviceId);
+      }
+
       let rfyCommand: 'up' | 'down' | 'stop' | null = null;
       let stopDelayMs: number | undefined;
       switch (command) {
@@ -63,13 +77,20 @@ async function main(): Promise<void> {
           break;
       }
       if (rfyCommand) {
+        const now = Date.now();
+        estimatedQueueFree = Math.max(estimatedQueueFree, now) + TX_SLOT_MS;
         rfxcom
           .sendRfyCommand(deviceId, rfyCommand)
           .then(() => {
             if (stopDelayMs !== undefined && stopDelayMs > 0) {
-              setTimeout(() => {
+              // Calculate queue wait: if transmitter is busy, add extra time
+              const queueWait = Math.max(0, estimatedQueueFree - Date.now());
+              const timer = setTimeout(() => {
+                pendingStops.delete(deviceId);
+                estimatedQueueFree = Math.max(estimatedQueueFree, Date.now()) + TX_SLOT_MS;
                 rfxcom.sendRfyCommand(deviceId, 'stop').catch(() => {});
-              }, stopDelayMs);
+              }, stopDelayMs + queueWait);
+              pendingStops.set(deviceId, timer);
             }
           })
           .catch((err) => console.error(`[rfxcom] send ${rfyCommand} to ${deviceId} failed:`, err?.message ?? err));

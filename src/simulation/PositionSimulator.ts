@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 
 /**
  * Simulates shutter movement for devices without position feedback (RFY).
- * Position is interpolated linearly over the travel time (in milliseconds).
+ * Position is interpolated using wall-clock time for accuracy.
  * 0 = fully open, 100 = fully closed.
  */
 export class PositionSimulator extends EventEmitter {
@@ -30,6 +30,8 @@ export class PositionSimulator extends EventEmitter {
   moveTo(device: SimulatedDevice, target: number): void {
     const s = device.state;
     s.targetPosition = Math.max(0, Math.min(100, target));
+    s.moveStartTime = Date.now();
+    s.moveStartPos = s.position;
     s.state = s.targetPosition > s.position ? 'closing' : s.targetPosition < s.position ? 'opening' : 'idle';
     this.start(device);
     this.emit('update', device);
@@ -56,18 +58,22 @@ export class PositionSimulator extends EventEmitter {
     const s = device.state;
     if (s.state === 'idle' || s.targetPosition === null) return;
 
-    const diff = s.targetPosition - s.position;
-    // direction-dependent travel time (in ms): closing uses travelTimeDown, opening travelTimeUp
+    const elapsed = Date.now() - s.moveStartTime;
+    const distance = Math.abs(s.targetPosition - s.moveStartPos);
     const travelTimeMs = s.state === 'closing' ? device.travelTimeDown : device.travelTimeUp;
-    const step = 10000 / travelTimeMs; // units per 100ms tick
+    const fraction = Math.min(1, elapsed / travelTimeMs);
 
-    if (Math.abs(diff) <= step) {
+    if (s.targetPosition >= s.moveStartPos) {
+      s.position = s.moveStartPos + fraction * distance;
+    } else {
+      s.position = s.moveStartPos - fraction * distance;
+    }
+
+    if (fraction >= 1) {
       s.position = s.targetPosition;
       s.targetPosition = null;
       s.state = 'idle';
       this.stopTimer(device);
-    } else {
-      s.position += Math.sign(diff) * step;
     }
     this.emit('update', device);
   }

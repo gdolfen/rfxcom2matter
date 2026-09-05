@@ -5,6 +5,10 @@ export interface DeviceState {
   position: number;
   state: MovementState;
   targetPosition: number | null;
+  /** wall-clock timestamp (ms) when the current movement started */
+  moveStartTime: number;
+  /** position when the current movement started */
+  moveStartPos: number;
 }
 
 export interface SimulatedDevice {

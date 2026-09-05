@@ -67,7 +67,7 @@ export class DeviceManager extends EventEmitter {
       travelTimeDown,
       timeBasedPosition: cfg.timeBasedPosition ?? true,
       shadePosition: cfg.shadePosition ?? 50,
-      state: { position: pos, state: 'idle', targetPosition: null },
+      state: { position: pos, state: 'idle', targetPosition: null, moveStartTime: 0, moveStartPos: pos },
     };
   }
 

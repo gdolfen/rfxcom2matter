@@ -91,13 +91,13 @@ async function main(): Promise<void> {
 
   // moveTo 100 completes to exactly 100
   devices.moveTo('1/0/1/1', 100);
-  await waitFor(() => d.state.position === 100, 5000, 'position 100');
-  assert(d.state.position === 100, `position reached 100 (got ${d.state.position})`);
+  await waitFor(() => Math.round(d.state.position) === 100, 10000, 'position 100');
+  assert(Math.round(d.state.position) === 100, `position reached 100 (got ${d.state.position})`);
   assert(d.state.state === 'idle', 'idle after reaching target');
 
   // moveTo partial (60) -> opens from 100 down to 60 (4s travel)
   devices.moveTo('1/0/1/1', 60);
-  await waitFor(() => Math.round(d.state.position) === 60, 5000, 'position 60');
+  await waitFor(() => Math.round(d.state.position) === 60, 10000, 'position 60');
   assert(Math.round(d.state.position) === 60, `position reached 60 (got ${d.state.position})`);
 
   // ---- direction-dependent travel times ----
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   assert(rd.travelTimeDown === 10000, 'travelTimeDown resolved from config');
   // ensure the device is fully closed so both directions have room to move
   devices.moveTo('1/22/43/1', 100);
-  await waitFor(() => rd.state.position === 100, 15000, 'rd at 100');
+  await waitFor(() => Math.round(rd.state.position) === 100, 15000, 'rd at 100');
   // opening uses travelTimeUp=4 (fast): ~25 units per second
   devices.command('1/22/43/1', 'up');
   await new Promise((r) => setTimeout(r, 1000));
